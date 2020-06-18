@@ -1,0 +1,366 @@
+---
+title: "Abalone HarvardX Capstone"
+author: "Ana Hristova"
+date: "18/06/2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 1. Introduction
+sss
+Abalone are shellfish from the Haliotidae family known for their pearlescent inside shell living in seas and oceans all around the world. The age of an abalone is determined by opening its shell, cleaning it and then counting the rings, which is a repetitive and time-consuming task.
+
+The aim of this project is to examine data driven models that help estimate the age of an abalone by using its measurements which are more easily obtainable.
+
+## 2. Data
+
+The full abalone dataset contains 4177 observations of abalone sex and measurements. It is originally provided in the University of Irvine data library and can be accessed via this link: https://archive.ics.uci.edu/ml/datasets/abalone
+
+The data contains no NAs. For the purposes of creating a verifiable predictive model, the data is split into "abalone" and "validation" sets with a 90% and 10% split respectively. The validation set is only used after choosing a best fitting model to validate its predictions.
+
+## 3. Methodology
+
+As the aim of this project is to create a predictive model that predicts the number of rings of abalones, simulating a real modelling environment, only the post-split abalone data set was used for the exploratory analysis of the data.
+
+The exploratory analysis of the data includes deep dive into each variable, to understand any dependancies and data types included.
+
+Following the exploratory analysis, the abalone dataset was split into train and test set to allow for examining different models and variables and to arrive to a model that would deliver the lowest RMSE. RMSE was chosen as a success measurement as the predicted variable (number of rings) is non-categorical.
+
+The predictive models explored are:
+
+1. Principal component regression
+2. Partial least squares
+3. k Nearest Neigbors
+
+The 90%/10% split used for splitting the original abalone set into abalone and validation sets and for splitting the resulting abalone set into test and train sets was chosen to provide a large enough number of observations to train the model but also to retain enough observations to produce a validation that didn't simply happen by chance.
+
+## 4. Exploratory data analysis
+
+### 4.1. Exploring the data set
+
+```{r, echo = FALSE, include = FALSE}
+################################
+# Setup - load packages and data
+################################
+# Install required packages ----
+# Note: this process could take a couple of minutes
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(ggrepel)) install.packages("ggrepel", repos = "http://cran.us.r-project.org")
+if(!require(scales)) install.packages("scales", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(knitr)) install.packages("knitr", repos = "http://cran.us.r-project.org")
+if(!require(readr)) install.packages("readr", repos = "http://cran.us.r-project.org")
+if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
+if(!require(rpart)) install.packages("rpart", repos = "http://cran.us.r-project.org")
+if(!require(leaps)) install.packages("leaps", repos = "http://cran.us.r-project.org")
+
+## download and import the abalone.csv file from GitHub ----
+# url  is https://raw.githubusercontent.com/anahristova/Capstone/master/abalone.csv
+
+url<- "https://raw.githubusercontent.com/anahristova/Capstone/master/abalone.csv"
+abalone<- read_csv(url(url))
+
+#renaming the columns for ease of use
+names(abalone)=c("sex", "length", "diameter", "height", "whole","shucked", "viscera", "shell", "rings")
+
+## For the purpose of accurately modelling the data and obtaining predictions we can validate
+# the data will be split in two parts - abalone and validation. 
+# Validation set will be 10% of the whole abalone data
+set.seed(1, sample.kind="Rounding")
+test_index <- createDataPartition(y = abalone$rings, times = 1, p = 0.1, list = FALSE)
+validation <- abalone[test_index,]
+abalone <- abalone[-test_index,]
+
+#removing url and test_index as we don't need those anymore
+rm(url, test_index)
+
+################################
+# Exploring the data
+################################
+
+# Dimensions of the dataset ----
+dim_dat<- dim(abalone)
+n_var<- dim_dat[2] #number of variables
+n_obs<- dim_dat[1] #number of observations
+
+
+
+```
+The abalone dataset contains `r n_var` variables and `r n_obs` observations. The variables included are:
+`r names(abalone)`
+
+``` {r, echo = FALSE}
+#Exploring the variables ----
+kable(head(abalone)) # viewing the first 6 rows of data
+abalone$sex<- as.factor(abalone$sex) # changing sex from character to factor, as it is categorical
+str(abalone)
+```
+
+We have two types of variables:
+
+ - sex: factor with three levels "M" (male), "F" (female) and "I" (infant)
+ - the rest of the variables are all numeric - rings is discreet and the measurements are continuous
+
+### 4.2. Exploring the sex variable
+
+It appears we have a evenly distributed number of infants, males and females in our dataset:
+
+``` {r, echo = FALSE}
+# Let's look into how many abalones we have for each sex
+abalone %>%
+  group_by(sex) %>%
+  summarise(count = n())%>%
+  kable
+```
+
+Let us have a look at the average number of rings for each sex and their distribution:
+
+``` {r, echo = FALSE, fig.pos = 'h', fig.show='hold', out.width = '50%'}
+# average number of rings by sex
+abalone %>%
+  group_by(sex) %>%
+  summarise(avg_rings = mean(rings)) %>% kable
+
+# plot distribution of rings by sex
+abalone %>%
+  ggplot(aes(rings, color = sex))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(title = "Distribution of Rings by Sex", y = "Number of Rings")+
+  theme_classic()+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+abalone %>%
+  ggplot(aes(rings, fill = sex))+
+  geom_density()+
+  labs(x = "Number of Rings")+
+  theme_classic()
+```
+
+From the graphs we see that while infants clearly tend to have fewer rings than adult abalones, adult male and female abalones have a very similar distribution and their sex is not a clear predictor of their number of rings and therefore also age.
+
+We can use this insight when developing our models by turning sex to binary adult = 1 and infant = 0 for models that cannot handle non-numerical data such as linear regression.
+
+
+
+### 4.3. Exploring the numeric variables
+
+From the exploration of the dataset above, we know we have 7 numeric explanatory variables:
+* Hieght
+* Length
+* Diameter
+* Whole weight
+* Viscera weight
+* Shucked weight
+* Shell weight
+
+Let's find out more about them:
+
+``` {r, echo = FALSE}
+# Exploring the numeric variables
+abalone %>%
+  select(-sex, - rings) %>%
+  summary %>% kable
+
+```
+
+Itr appears we have some abalones in the dataset with height = 0. We need to take a closer look to determine wether to keep these entries or discard them.
+
+``` {r, echo = FALSE}
+# there appears to be some abalone with Hight = 0 mm, let's check them out
+abalone %>%
+  filter(height==min(height))%>%
+  kable
+
+```
+
+Whole height is 0 for two abalones, all their other measurements are present, so even if this is an entry error we cannot discard them and will retain them in the dataset.
+
+Now we will look at the distributions of the numeric variable sand the rings to see if there are similar patterns:
+
+``` {r, echo = FALSE, fig.pos = 'h', fig.height = 3.5}
+# plot distributions of num vars
+abalone %>%
+     select(-sex) %>%
+     gather(key = "var", value = "val") %>%
+     ggplot(aes(val))+
+     facet_wrap(~ var, scales = "free")+
+     geom_histogram(bins=10)+
+     labs(title = "Distributions of the Numeric Variables")+
+     theme_classic()
+  
+```
+
+The plot above shows that rings and the weight measurements have similar, right-skewed distribution. This similarity in patterns indicates they will likely be better predictors then the size measurements.
+
+Next we will examine the correlation between the numeric variables and the rings:
+
+``` {r, echo = FALSE, fig.pos = 'h', fig.height = 3.5}
+# correlation of the num vars 
+abalone %>%
+  select(-sex) %>%
+  cor %>%
+  corrplot(type = "upper")
+
+```
+
+All numeric variables are moderately positively correlated with the number of rings of the abalones in the dataset. However, we notice that the correlation between the explanatory variables is a lot stronger, almost perfect in some cases. This information, while not surprising as the larger the abalone, the more it weights, presents the challeng of multicollinearity in our data and helps us determine which models will be useful and which will result in overtraining the model.
+
+Due to this multicollinearity between the explanatory variables, linear regression will result in an overtrained model which will produce worse results the more abalones we include in out validation set. To avoid this, we will use methods that are not affected by multicollinearity, such as principal component regression, partial least squares and k nearest neighbors.
+
+
+
+## 5. Choosing the best predictive model
+
+In this section we will take a look at 3 predictive models to choose the best one amongst them, which will yield the lowest RMSE value.
+
+For this purpose, the abalone dataset explored above is split into a train and test set, which will allow for the model to be tested and fitted before applying the best one to the validation set.
+
+``` {r, echo = FALSE, include = FALSE}
+
+## Splitting the data into train and test sets ----
+set.seed(1, sample.kind="Rounding")
+test_index <- createDataPartition(y = abalone$rings, times = 1, p = 0.1, list = FALSE)
+test <- abalone[test_index,]
+train <- abalone[-test_index,]
+
+## Write RMSE function ----
+RMSE <- function(true_rings, predicted_rings){
+  sqrt(mean((true_rings - predicted_rings)^2))
+}
+
+```
+
+### 5.1. Principal Component Regression
+
+PCR works by applying Principal Component Analysis to the data and summarising the original predictor variables into new variables called Principal Components, which are a linear combination of the original data. Then these Principal Components (PCs) are used for building a linear regression model. The number of PCs included in the model is determined by cross-validation.
+
+``` {r, echo = TRUE, warnings = FALSE}
+set.seed(1, sample.kind = "Rounding")
+train_pc<- train(
+  rings~.-sex, data = train, method = "pcr",
+  scale = TRUE,
+  trControl = trainControl("cv", number = 7),
+  tuneLength = 7
+)
+
+train_pc$bestTune
+
+fit_pc<- train_pc$finalModel
+pred_pc<- predict(fit_pc, test)
+pc_reg<-RMSE(test$rings, pred_pc)
+```
+
+``` {r, echo = FALSE}
+
+#creating a tibble for storing RMSE results ----
+rmse_results <- tibble(method = "Principal component regression", RMSE = pc_reg )
+
+knitr::kable(rmse_results)
+
+```
+
+RMSE of 2.35 is not too bad but PCR gives no guarantee that the selected PCs are associated with the outcome. Next we will look at Partial Least Squares regression, which takes this into account.
+
+### 5.2. Partial Least Squares regression
+
+Partial Least Squares regression is an alternative to PCR which also identifies new PCs that summarise the original predictors but also it makes sure they are related to the outcome. Again we will use cross-validation to determine the best number of PCs.
+
+``` {r, echo = TRUE, warning = FALSE}
+# Partial least squares 
+set.seed(1, sample.kind = "Rounding")
+train_pls <- train(
+  rings~.-sex, data = train, method = "pls",
+  scale = TRUE,
+  trControl = trainControl("cv", number = 7),
+  tuneLength = 7
+)
+
+train_pls$bestTune
+
+fit_pls<- train_pls$finalModel
+pred_pls<- predict(fit_pls, test)
+pls<-RMSE(test$rings, pred_pls)
+
+rmse_results<- bind_rows(rmse_results, data_frame(method = "Partial least squares",
+                                                  RMSE = pls))
+
+knitr::kable(rmse_results)
+
+
+```
+
+We have an improvement of 0.1 on our RMSE, which is not bad. Let's try one more model to see if we can do better.
+
+### 5.3. k Nearest Neigbors
+
+k Nearest Neighbors is quite different from the other two models we used above, as instead of using an altered linear model it uses similarity measure to predict the dependant variable, in our case the number of rings and therefore the age of an abalone.
+
+Let's have a look at how this model performs:
+
+``` {r, echo = TRUE}
+fit_knn<- train(rings~., method = "knn", data=train)
+pred_knn<- predict(fit_knn, test)
+knn_model<-RMSE(test$rings,pred_knn)
+
+rmse_results<- bind_rows(rmse_results, data_frame(method = "k Nearest Neigbors",
+                                                  RMSE = knn_model))
+
+knitr::kable(rmse_results)
+
+
+```
+
+The RMSE is now 2.09, whooping 0.26 lower than PCR and 0.16 lower than PLS. Therefore, this is the model we choose as the best one and we will test it on the validation data.
+
+
+
+## 6. Results
+
+The k Nearest Neighbors model tested above showed the most promising predictions, with RMSE of 2.09. Therefore, it is the one we choose to keep for predicting the number of rings of an abalone given its sex and measures. 
+
+``` {r, echo = TRUE}
+# Predicting using the kNN model: ----
+
+fit_knn_final<- train(rings~., method = "knn", data=abalone)
+pred_knn_final<- predict(fit_knn_final, validation)
+
+# RMSE result ----
+result<-RMSE(validation$rings, pred_knn_final)
+
+```
+
+It's RMSE of `r result` is slightly worse than the one obtained with the test and train sets, but it still performs better than the other two models explored.
+
+## 7. Conclusion
+
+This report took us through the abalone dataset used for predicting the age of an abalone based on its sex and measurements.
+
+The entire set was split 90/10 to achieve abalone and validation sets, used for modelling the data and validating the final model respectively.
+
+The set contained 4177 observations of 9 variables wich were explored in detail in the Exploratory Analysis section of this report. 
+
+The predictive model that best fit the data and provided the lowest RMSE amongst the models explored was k Nearest Neigbors.The results of each of the models explored are summarised in the table below:
+
+```{r,echo= FALSE}
+knitr::kable(rmse_results)
+
+```
+
+
+## 8. Limitations and further work
+
+Only 3 models were explored in predicting the number of rings in the validation set. The small size of the data set and the high multicollinearirty of the explanatory numeric variables made modelling the data easy to overtrain.
+
+Working with a larger dataset with more entries and data on the habitats and diets of the abalones will be necessary to develop a more accurate model.
+
